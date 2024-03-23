@@ -17,4 +17,3 @@ if [[ "$openwrt_tag_branch" == "v23.05.2" ]] ; then
     curl -s -L --retry 6 https://github.com/openwrt/packages/commit/cea45c75c0153a190ee41dedaf6526ae08e33928.patch  | patch -p1 -d feeds/packages 2>/dev/null
   fi
 fi
-sed -i '/\/etc\/init\.d\/tailscale/d;/\/etc\/config\/tailscale/d;' feeds/packages/net/tailscale/Makefile

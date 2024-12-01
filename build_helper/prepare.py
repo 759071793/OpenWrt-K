@@ -256,7 +256,6 @@ def prepare_cfg(config: dict[str, Any],
 
     # 添加turboacc补丁
     turboacc_dir = os.path.join(cloned_repos[("https://github.com/chenmozhijin/turboacc", "package")])
-    versions = parse_config(os.path.join(turboacc_dir, "version"), ("FIREWALL4_VERSION", "NFTABLES_VERSION", "LIBNFTNL_VERSION"))
     kernel_version = openwrt.get_kernel_version()
     enable_sfe = (openwrt.get_package_config("kmod-shortcut-fe") in ("y", "m") or
                openwrt.get_package_config("kmod-shortcut-fe-drv") in ("y", "m") or
@@ -285,13 +284,32 @@ def prepare_cfg(config: dict[str, Any],
             f.write("\nCONFIG_SHORTCUT_FE=y")
     if enable_fullcone:
         logger.info("%s添加libnftnl、firewall4、nftables补丁", cfg_name)
+        def get_version(file_path: str, pattern: str) -> str | None:
+            with open(file_path, encoding='utf-8') as f:
+                content = f.read()
+                match = re.search(pattern, content)
+            return match.group(1) if match else None
+
+        firewall4_ver = get_version(os.path.join(openwrt.path, "package", "network", "config", "firewall4", "Makefile"), r'PKG_SOURCE_VERSION:=(.*)')
+        nftables_ver = get_version(os.path.join(openwrt.path, "package", "network", "utils", "nftables", "Makefile"), r'PKG_VERSION:=(.*)')
+        libnftnl_ver = get_version(os.path.join(openwrt.path, "package", "libs", "libnftnl", "Makefile"), r'PKG_VERSION:=(.*)')
+        latest_versions = parse_config(os.path.join(turboacc_dir, "version"), ("FIREWALL4_VERSION", "NFTABLES_VERSION", "LIBNFTNL_VERSION"))
+        if not os.path.isdir(os.path.join(turboacc_dir, f"libnftnl-{libnftnl_ver}")):
+            logger.warning("%s未找到当前libnftnl版本%s，使用最新版本", cfg_name, libnftnl_ver)
+            libnftnl_ver = latest_versions["LIBNFTNL_VERSION"]
+        if not os.path.isdir(os.path.join(turboacc_dir, f"firewall4-{firewall4_ver}")):
+            logger.warning("%s未找到当前firewall4版本%s，使用最新版本", cfg_name, firewall4_ver)
+            firewall4_ver = latest_versions["FIREWALL4_VERSION"]
+        if not os.path.isdir(os.path.join(turboacc_dir, f"nftables-{nftables_ver}")):
+            logger.warning("%s未找到当前nftables版本%s，使用最新版本", cfg_name, nftables_ver)
+            nftables_ver = latest_versions["NFTABLES_VERSION"]
         shutil.rmtree(os.path.join(openwrt.path, "package", "libs", "libnftnl"))
-        shutil.copytree(os.path.join(turboacc_dir, f"libnftnl-{versions['LIBNFTNL_VERSION']}"), os.path.join(openwrt.path, "package", "libs", "libnftnl"))
+        shutil.copytree(os.path.join(turboacc_dir, f"libnftnl-{libnftnl_ver}"), os.path.join(openwrt.path, "package", "libs", "libnftnl"))
         shutil.rmtree(os.path.join(openwrt.path, "package", "network", "config", "firewall4"))
-        shutil.copytree(os.path.join(turboacc_dir, f"firewall4-{versions['FIREWALL4_VERSION']}"),
+        shutil.copytree(os.path.join(turboacc_dir, f"firewall4-{firewall4_ver}"),
                         os.path.join(openwrt.path, "package", "network", "config", "firewall4"))
         shutil.rmtree(os.path.join(openwrt.path, "package", "network", "utils", "nftables"))
-        shutil.copytree(os.path.join(turboacc_dir, f"nftables-{versions['NFTABLES_VERSION']}"),
+        shutil.copytree(os.path.join(turboacc_dir, f"nftables-{nftables_ver}"),
                         os.path.join(openwrt.path, "package", "network", "utils", "nftables"))
 
     logger.info("%s准备自定义文件...", cfg_name)
@@ -342,8 +360,8 @@ def prepare_cfg(config: dict[str, Any],
 
     if clash_arch and openwrt.get_package_config("luci-app-openclash") == "y":
         logger.info("%s下载架构为%s的OpenClash核心", cfg_name, clash_arch)
-        versions = request_get("https://raw.githubusercontent.com/vernesong/OpenClash/core/master/core_version")
-        tun_v = versions.splitlines()[1] if versions else None
+        latest_versions = request_get("https://raw.githubusercontent.com/vernesong/OpenClash/core/master/core_version")
+        tun_v = latest_versions.splitlines()[1] if latest_versions else None
         if tun_v:
             dl_tasks.append(dl2(f"https://raw.githubusercontent.com/vernesong/OpenClash/core/master/premium/clash-{clash_arch}-{tun_v}.gz",
                                 os.path.join(tmpdir.name, "clash_tun.gz")))
@@ -409,7 +427,7 @@ def prepare_cfg(config: dict[str, Any],
             if "set system.@system[-1].hostname='OpenWrt'" in line:
                 f.write(line.replace("set system.@system[-1].hostname='OpenWrt'", "set system.@system[-1].hostname='OpenWrt-k'") + "\n")
             elif "set system.@system[-1].timezone='UTC'" in line:
-                f.write(line.replace("set system.@system.@system[-1].timezone='UTC'",
+                f.write(line.replace("set system.@system[-1].timezone='UTC'",
                                      f"set system.@system[-1].timezone='{config['openwrtext']['timezone']}'") +
                                      f"\n		set system.@system[-1].zonename='{config["openwrtext"]["zonename"]}'\n")
             else:
